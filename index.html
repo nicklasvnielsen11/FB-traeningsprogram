@@ -1128,27 +1128,35 @@ function onData(){
 /* ---------- Local storage (this phone) ---------- */
 const STORE_KEY = "fbtraening-data-v1";
 const SEED = {"app/program": {"exercises": [{"id": "skulderpres", "name": "Skulderpres med håndvægte", "sets": [{"inc": 2, "max": 8, "min": 5}, {"inc": 2, "max": 10, "min": 6}]}, {"id": "rows", "name": "Rows liggende", "sets": [{"inc": 5, "max": 10, "min": 6}]}, {"id": "pulldowns", "name": "Pulldowns", "sets": [{"inc": 5, "max": 10, "min": 6}]}, {"id": "triceps1", "name": "Triceps 1 (60/55 kg)", "sets": [{"inc": 2.5, "max": 10, "min": 6}]}, {"id": "triceps2", "name": "Triceps 2 (17 kg)", "sets": [{"inc": 1, "max": 12, "min": 8}]}, {"id": "triceps3", "name": "Triceps 3 (17 kg)", "sets": [{"inc": 1, "max": 12, "min": 8}]}, {"id": "biceps1", "name": "Biceps 1 (26 kg)", "sets": [{"inc": 2, "max": 10, "min": 6}]}, {"id": "biceps2", "name": "Biceps 2 (26 kg)", "sets": [{"inc": 2, "max": 10, "min": 6}]}, {"id": "biceps3", "name": "Biceps 3 (20 kg)", "sets": [{"inc": 2, "max": 12, "min": 8}]}, {"id": "lateral", "name": "Lateral raises", "sets": [{"inc": 2, "max": 15, "min": 8}, {"inc": 2, "max": 15, "min": 8}]}, {"id": "dodloft", "name": "Dødløft", "sets": [{"inc": 5, "max": 6, "min": 4}]}, {"id": "rdl", "name": "RDL", "sets": [{"inc": 5, "max": 10, "min": 6}]}]}, "app/log": {"sessions": [{"date": null, "entries": {"biceps1": [{"kg": 26, "reps": 7}], "biceps2": [{"kg": 26, "reps": 7}], "biceps3": [{"kg": 20, "reps": 9.5}], "dodloft": [{"kg": 220, "reps": 5}], "lateral": [{"kg": 20, "reps": 6}, {"kg": 18, "reps": 9.5}], "pulldowns": [{"kg": 130, "reps": 7.5}], "rdl": [{"kg": 200, "reps": 6}], "rows": [{"kg": 100, "reps": 7.5}], "skulderpres": [{"kg": 42, "reps": 7}, {"kg": 42, "reps": 6.5}], "triceps1": [{"kg": 55, "reps": 8}], "triceps2": [{"kg": 17, "reps": 9.5}], "triceps3": [{"kg": 17, "reps": 9}]}, "n": 1}]}};
+// Exercises with 2 sets that are split into two exercises with 1 set each. Runs once per id.
+const SPLITS = [
+  {id:"skulderpres", names:["Skulderpres 1","Skulderpres 2"], def:[{min:5,max:8,inc:2},{min:6,max:10,inc:2}]},
+  {id:"lateral", names:["Lateral raises 1","Lateral raises 2"], def:[{min:8,max:15,inc:2},{min:8,max:15,inc:2}]}
+];
 function migrateSplit(st){
-  // Skulderpres (2 sets) -> Skulderpres 1 + Skulderpres 2, one set each. Runs once.
   const pr = st["app/program"]; if (!pr || !pr.exercises) return st;
-  const k = pr.exercises.findIndex(x => x.id === "skulderpres");
-  if (k < 0 || pr.exercises.some(x => x.id === "skulderpres1")) return st;
-  const old = pr.exercises[k];
-  pr.exercises.splice(k, 1,
-    {id:"skulderpres1", name:"Skulderpres 1", sets:[old.sets[0] || {min:5,max:8,inc:2}]},
-    {id:"skulderpres2", name:"Skulderpres 2", sets:[old.sets[1] || old.sets[0] || {min:6,max:10,inc:2}]});
-  ((st["app/log"] || {}).sessions || []).forEach(x => { const e = x.entries && x.entries.skulderpres; if (!e) return;
-    if (e[0]) x.entries.skulderpres1 = [e[0]]; if (e[1]) x.entries.skulderpres2 = [e[1]]; delete x.entries.skulderpres; });
+  SPLITS.forEach(sp => {
+    const k = pr.exercises.findIndex(x => x.id === sp.id);
+    if (k < 0 || pr.exercises.some(x => x.id === sp.id + "1")) return;
+    const old = pr.exercises[k];
+    pr.exercises.splice(k, 1,
+      {id:sp.id+"1", name:sp.names[0], sets:[old.sets[0] || sp.def[0]]},
+      {id:sp.id+"2", name:sp.names[1], sets:[old.sets[1] || old.sets[0] || sp.def[1]]});
+    ((st["app/log"] || {}).sessions || []).forEach(x => { const e = x.entries && x.entries[sp.id]; if (!e) return;
+      if (e[0]) x.entries[sp.id+"1"] = [e[0]]; if (e[1]) x.entries[sp.id+"2"] = [e[1]]; delete x.entries[sp.id]; });
+  });
   return st;
 }
 function migrateDraft(d){
-  if (!d || !d.values || !d.values.skulderpres) return d;
-  const sp = (o, f) => { if (o && o.skulderpres){ const a = o.skulderpres; o.skulderpres1 = f(a, 0); o.skulderpres2 = f(a, 1); delete o.skulderpres; } };
-  sp(d.values, (a,i) => a[i] ? [a[i]] : undefined);
-  sp(d.done, (a,i) => a && a[i] ? {0:true} : {});
-  sp(d.pr, (a,i) => a && a[i] ? {0:true} : {});
-  if (d.skip && d.skip.skulderpres){ d.skip.skulderpres1 = d.skip.skulderpres2 = true; delete d.skip.skulderpres; }
-  if (d.open && "skulderpres" in d.open) delete d.open.skulderpres;
+  if (!d || !d.values) return d;
+  SPLITS.forEach(({id}) => {
+    const sp = (o, f) => { if (o && o[id]){ const a = o[id]; const x = f(a,0), y = f(a,1); if (x !== undefined) o[id+"1"] = x; if (y !== undefined) o[id+"2"] = y; delete o[id]; } };
+    sp(d.values, (a,i) => a[i] ? [a[i]] : undefined);
+    sp(d.done, (a,i) => a && a[i] ? {0:true} : {});
+    sp(d.pr, (a,i) => a && a[i] ? {0:true} : {});
+    if (d.skip && d.skip[id]){ d.skip[id+"1"] = d.skip[id+"2"] = true; delete d.skip[id]; }
+    if (d.open && id in d.open) delete d.open[id];
+  });
   return d;
 }
 function loadStore(){ try{ const x = JSON.parse(localStorage.getItem(STORE_KEY)); if (x && x["app/program"] && x["app/log"]) return migrateSplit(x); }catch(e){} return migrateSplit(JSON.parse(JSON.stringify(SEED))); }
