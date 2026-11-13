@@ -1215,7 +1215,15 @@ document.addEventListener("change", async e => {
     if (changed && draft && program && log && draft.n === nextN()) freshAfterChange();
     onData();
   });
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator){
+    const hadCtrl = !!navigator.serviceWorker.controller; let reloaded = false;
+    navigator.serviceWorker.register("sw.js", {updateViaCache:"none"}).then(reg => {
+      reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+    }).catch(() => {});
+    // A new version took over: reload once so it shows straight away (the workout draft is kept on the phone).
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!hadCtrl || reloaded) return; reloaded = true; try{ if (typeof draft !== "undefined" && draft) saveDraft(); }catch(e){} location.reload(); });
+  }
 })();
 })();
 </script>
