@@ -349,6 +349,23 @@ nav{background:rgba(6,7,9,.78);border-top:0;box-shadow:0 -1px 0 rgba(255,255,255
 .backup{display:grid;gap:8px;margin-top:12px}
 .backup .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media (display-mode: standalone){ .wrap{padding-top:calc(14px + env(safe-area-inset-top))} }
+
+/* ---------- Result colours ---------- */
+:root{--yellow:#ffd60a; --yellow-soft:rgba(255,214,10,.14)}
+.row.on.eq{background:linear-gradient(90deg,rgba(255,214,10,.16),rgba(255,214,10,.05))}
+.row.on.dn{background:linear-gradient(90deg,rgba(255,159,10,.18),rgba(255,159,10,.05))}
+.row.on.eq .inp{color:var(--yellow)} .row.on.dn .inp{color:var(--orange)}
+.chk[aria-pressed="true"].eq{background:var(--yellow);box-shadow:0 0 18px -4px rgba(255,214,10,.8)}
+.chk[aria-pressed="true"].dn{background:var(--orange);box-shadow:0 0 18px -4px rgba(255,159,10,.8)}
+.chk[aria-pressed="true"].eq svg,.chk[aria-pressed="true"].dn svg{stroke:#231a00}
+.segs i.on.eq{background:linear-gradient(90deg,#ffd60a,#ffe45c);box-shadow:0 0 10px rgba(255,214,10,.45)}
+.segs i.on.dn{background:linear-gradient(90deg,#ff9f0a,#ffb84d);box-shadow:0 0 10px rgba(255,159,10,.45)}
+.ex.done.eq{border-color:rgba(255,214,10,.4);box-shadow:0 0 0 1px rgba(255,214,10,.2),0 0 30px -10px rgba(255,214,10,.35)}
+.ex.done.eq .badge{background:var(--yellow-soft);color:var(--yellow)}
+.ex.done.dn{border-color:rgba(255,159,10,.4);box-shadow:0 0 0 1px rgba(255,159,10,.2),0 0 30px -10px rgba(255,159,10,.35)}
+.ex.done.dn .badge{background:var(--orange-soft);color:var(--orange)}
+.reslegend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 4px 0;font:500 12px var(--sans);color:var(--muted)}
+.reslegend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:0}
 </style>
 </head>
 <body>
@@ -461,7 +478,7 @@ function fixDraft(){
     if (!vals || vals.length !== ex.sets.length || empty){ draft.values[ex.id] = freshDraft().values[ex.id]; delete draft.done[ex.id]; delete draft.pr[ex.id]; }
   });
 }
-function ensureDraft(){ const st = lsGet("fb-draft"); draft = (st && st.n === nextN() && st.values) ? st : freshDraft(); fixDraft(); }
+function ensureDraft(){ const st = migrateDraft(lsGet("fb-draft")); draft = (st && st.n === nextN() && st.values) ? st : freshDraft(); fixDraft(); }
 const saveDraft = () => lsSet("fb-draft", draft);
 const tEl = t => !t.startedAt ? 0 : ((t.pausedAt || Date.now()) - t.startedAt - (t.pausedTotal||0))/1000;
 const tState = t => !t.startedAt ? "idle" : (t.pausedAt ? "paused" : "live");
@@ -472,8 +489,15 @@ const tReset = t => { t.startedAt = null; t.pausedAt = null; t.pausedTotal = 0; 
 const elapsed = () => draft ? tEl(draft.w) : 0;
 const isDone = (id,i) => !!(draft.done[id] && draft.done[id][i]);
 const exDone = ex => !draft.skip[ex.id] && ex.sets.every((_,i) => isDone(ex.id,i));
+function setRes(id, i){
+  const v = draft.values[id] && draft.values[id][i]; const l = (lastFor(id) || [])[i];
+  if (!v || !l) return "up";
+  const a = e1rm(v.kg, v.reps), b = e1rm(l.kg, l.reps);
+  return a > b + 0.01 ? "up" : a < b - 0.01 ? "dn" : "eq";
+}
+function exRes(ex){ const r = ex.sets.map((_,i) => setRes(ex.id, i)); return r.includes("up") ? "up" : r.includes("dn") ? "dn" : "eq"; }
 function counts(){ let total = 0, done = 0, segs = [];
-  (program.exercises||[]).forEach(ex => { if (draft.skip[ex.id]) return; ex.sets.forEach((_,i) => { total++; const d = isDone(ex.id,i); if (d) done++; segs.push(d); }); });
+  (program.exercises||[]).forEach(ex => { if (draft.skip[ex.id]) return; ex.sets.forEach((_,i) => { total++; const d = isDone(ex.id,i); if (d) done++; segs.push(d ? setRes(ex.id,i) : null); }); });
   return {total, done, segs};
 }
 async function syncWake(){
@@ -542,8 +566,8 @@ function renderPanel(){
   let ups = 0, stalls = 0;
   (program.exercises||[]).forEach(ex => { if (draft.skip[ex.id]) return; const l = lastFor(ex.id) || []; ex.sets.forEach((s,i) => { const sg = suggestion(s, l[i]); if (sg && sg.up) ups++; if (stallCount(ex.id,i) >= 4) stalls++; }); });
   host.innerHTML = '<div class="timers" aria-label="Ure">'+timerCard("w","Træning")+timerCard("s","Sæt")+'</div>' +
-    '<div class="strip"><div class="segs" aria-hidden="true">'+segs.map(d => '<i'+(d?' class="on"':'')+'></i>').join('')+'</div>' +
-    '<div class="prog-l"><span><b>'+done+'</b> af '+total+' sæt</span><span>'+(ups?'<span class="g">'+ups+' klar til +kg</span>':'')+(ups&&stalls?' · ':'')+(stalls?'<span class="o">'+stalls+' står stille</span>':'')+(!ups&&!stalls?'Følg målene':'')+'</span></div></div>';
+    '<div class="strip"><div class="segs" aria-hidden="true">'+segs.map(d => '<i'+(d?' class="on '+d+'"':'')+'></i>').join('')+'</div>' +
+    '<div class="prog-l"><span><b>'+done+'</b> af '+total+' sæt</span><span>'+(ups?'<span class="g">'+ups+' klar til +kg</span>':'')+(ups&&stalls?' · ':'')+(stalls?'<span class="o">'+stalls+' står stille</span>':'')+(!ups&&!stalls?'Følg målene':'')+'</span></div><div class="reslegend"><span><i style="background:#30d158"></i>Bedre end sidst</span><span><i style="background:#ffd60a"></i>Samme</span><span><i style="background:#ff9f0a"></i>Under sidst</span></div></div>';
   syncWake();
 }
 $("#panelHost").addEventListener("click", e => {
@@ -581,7 +605,7 @@ function renderLog(){
     const stall = Math.max(0, ...ex.sets.map((_,i) => stallCount(ex.id,i)));
     const ranges = [...new Set(ex.sets.map(st => st.min+'–'+st.max))].join(' / ');
     const collapsed = allDone && !draft.open[ex.id];
-    h += '<section class="ex'+(skipped?' skipped':'')+(allDone?' done':'')+'" data-ex="'+esc(ex.id)+'">';
+    h += '<section class="ex'+(skipped?' skipped':'')+(allDone?' done '+exRes(ex):'')+'" data-ex="'+esc(ex.id)+'">';
     h += '<div class="ex-h"><span class="badge">'+(allDone ? I.check : (xi+1))+'</span><div><h3>'+esc(ex.name)+'</h3>' + (stall >= 4 ? '<div class="sub"><span class="pill o">Samme i '+stall+'</span></div>' : '') + '</div>' +
          (allDone ? '<button class="link blue" data-act="toggle">'+(collapsed?'Vis':'Skjul')+'</button>' : '<button class="link'+(skipped?' blue':'')+'" data-act="skip">'+(skipped?'Tag med':'Spring over')+'</button>') + '</div>';
     if (collapsed) h += '<div class="mini">'+draft.values[ex.id].map((v,i) => fmt(v.kg)+' × '+fmt(v.reps)+(draft.pr[ex.id] && draft.pr[ex.id][i] ? ' <span style="color:var(--blue);font-weight:700">PR</span>' : '')).join('<span>·</span>')+'</div>';
@@ -590,10 +614,11 @@ function renderLog(){
       ex.sets.forEach((st,i) => {
         const v = draft.values[ex.id][i]; const l = last[i]; const sg = suggestion(st, l); const d = isDone(ex.id,i);
         const pr = draft.pr[ex.id] && draft.pr[ex.id][i];
-        h += '<div class="row'+(d?' on':'')+'" data-i="'+i+'"><span class="no">'+(i+1)+(pr?'<span class="pr">PR</span>':'')+'</span>' +
+        const res = d ? setRes(ex.id, i) : "";
+        h += '<div class="row'+(d?' on '+res:'')+'" data-i="'+i+'"><span class="no">'+(i+1)+(pr?'<span class="pr">PR</span>':'')+'</span>' +
           '<div class="kgst"><button data-act="kg-" aria-label="Sæt '+(i+1)+' 1 kg ned">−</button><input class="inp" data-f="kg" inputmode="decimal" aria-label="Sæt '+(i+1)+' kg" value="'+fmt(v.kg)+'"><button data-act="kg+" aria-label="Sæt '+(i+1)+' 1 kg op">+</button></div>' +
           '<div class="kgst"><button data-act="rp-" aria-label="Sæt '+(i+1)+' en halv rep ned">−</button><input class="inp" data-f="reps" inputmode="decimal" aria-label="Sæt '+(i+1)+' reps" value="'+fmt(v.reps)+'"><button data-act="rp+" aria-label="Sæt '+(i+1)+' en halv rep op">+</button></div>' +
-          '<button class="chk" data-act="tick" aria-pressed="'+d+'" aria-label="Sæt '+(i+1)+' færdigt">'+I.check+'</button>' +
+          '<button class="chk '+res+'" data-act="tick" aria-pressed="'+d+'" aria-label="Sæt '+(i+1)+' færdigt'+(d ? (res === "up" ? ', bedre end sidst' : res === "eq" ? ', samme som sidst' : ', under sidst') : '')+'">'+I.check+'</button>' +
           '<div class="line2"><span class="prev">'+(l ? 'Sidst <b>'+fmt(l.kg)+'\u202F×\u202F'+fmt(l.reps)+'</b>' : 'Første gang') + '</span>' +
           (sg ? goalBtn(sg, v) : '') + '</div></div>';
       });
@@ -1103,8 +1128,31 @@ function onData(){
 /* ---------- Local storage (this phone) ---------- */
 const STORE_KEY = "fbtraening-data-v1";
 const SEED = {"app/program": {"exercises": [{"id": "skulderpres", "name": "Skulderpres med håndvægte", "sets": [{"inc": 2, "max": 8, "min": 5}, {"inc": 2, "max": 10, "min": 6}]}, {"id": "rows", "name": "Rows liggende", "sets": [{"inc": 5, "max": 10, "min": 6}]}, {"id": "pulldowns", "name": "Pulldowns", "sets": [{"inc": 5, "max": 10, "min": 6}]}, {"id": "triceps1", "name": "Triceps 1 (60/55 kg)", "sets": [{"inc": 2.5, "max": 10, "min": 6}]}, {"id": "triceps2", "name": "Triceps 2 (17 kg)", "sets": [{"inc": 1, "max": 12, "min": 8}]}, {"id": "triceps3", "name": "Triceps 3 (17 kg)", "sets": [{"inc": 1, "max": 12, "min": 8}]}, {"id": "biceps1", "name": "Biceps 1 (26 kg)", "sets": [{"inc": 2, "max": 10, "min": 6}]}, {"id": "biceps2", "name": "Biceps 2 (26 kg)", "sets": [{"inc": 2, "max": 10, "min": 6}]}, {"id": "biceps3", "name": "Biceps 3 (20 kg)", "sets": [{"inc": 2, "max": 12, "min": 8}]}, {"id": "lateral", "name": "Lateral raises", "sets": [{"inc": 2, "max": 15, "min": 8}, {"inc": 2, "max": 15, "min": 8}]}, {"id": "dodloft", "name": "Dødløft", "sets": [{"inc": 5, "max": 6, "min": 4}]}, {"id": "rdl", "name": "RDL", "sets": [{"inc": 5, "max": 10, "min": 6}]}]}, "app/log": {"sessions": [{"date": null, "entries": {"biceps1": [{"kg": 26, "reps": 7}], "biceps2": [{"kg": 26, "reps": 7}], "biceps3": [{"kg": 20, "reps": 9.5}], "dodloft": [{"kg": 220, "reps": 5}], "lateral": [{"kg": 20, "reps": 6}, {"kg": 18, "reps": 9.5}], "pulldowns": [{"kg": 130, "reps": 7.5}], "rdl": [{"kg": 200, "reps": 6}], "rows": [{"kg": 100, "reps": 7.5}], "skulderpres": [{"kg": 42, "reps": 7}, {"kg": 42, "reps": 6.5}], "triceps1": [{"kg": 55, "reps": 8}], "triceps2": [{"kg": 17, "reps": 9.5}], "triceps3": [{"kg": 17, "reps": 9}]}, "n": 1}]}};
-function loadStore(){ try{ const x = JSON.parse(localStorage.getItem(STORE_KEY)); if (x && x["app/program"] && x["app/log"]) return x; }catch(e){} return JSON.parse(JSON.stringify(SEED)); }
-let store = loadStore();
+function migrateSplit(st){
+  // Skulderpres (2 sets) -> Skulderpres 1 + Skulderpres 2, one set each. Runs once.
+  const pr = st["app/program"]; if (!pr || !pr.exercises) return st;
+  const k = pr.exercises.findIndex(x => x.id === "skulderpres");
+  if (k < 0 || pr.exercises.some(x => x.id === "skulderpres1")) return st;
+  const old = pr.exercises[k];
+  pr.exercises.splice(k, 1,
+    {id:"skulderpres1", name:"Skulderpres 1", sets:[old.sets[0] || {min:5,max:8,inc:2}]},
+    {id:"skulderpres2", name:"Skulderpres 2", sets:[old.sets[1] || old.sets[0] || {min:6,max:10,inc:2}]});
+  ((st["app/log"] || {}).sessions || []).forEach(x => { const e = x.entries && x.entries.skulderpres; if (!e) return;
+    if (e[0]) x.entries.skulderpres1 = [e[0]]; if (e[1]) x.entries.skulderpres2 = [e[1]]; delete x.entries.skulderpres; });
+  return st;
+}
+function migrateDraft(d){
+  if (!d || !d.values || !d.values.skulderpres) return d;
+  const sp = (o, f) => { if (o && o.skulderpres){ const a = o.skulderpres; o.skulderpres1 = f(a, 0); o.skulderpres2 = f(a, 1); delete o.skulderpres; } };
+  sp(d.values, (a,i) => a[i] ? [a[i]] : undefined);
+  sp(d.done, (a,i) => a && a[i] ? {0:true} : {});
+  sp(d.pr, (a,i) => a && a[i] ? {0:true} : {});
+  if (d.skip && d.skip.skulderpres){ d.skip.skulderpres1 = d.skip.skulderpres2 = true; delete d.skip.skulderpres; }
+  if (d.open && "skulderpres" in d.open) delete d.open.skulderpres;
+  return d;
+}
+function loadStore(){ try{ const x = JSON.parse(localStorage.getItem(STORE_KEY)); if (x && x["app/program"] && x["app/log"]) return migrateSplit(x); }catch(e){} return migrateSplit(JSON.parse(JSON.stringify(SEED))); }
+let store = loadStore(); try{ localStorage.setItem(STORE_KEY, JSON.stringify(store)); }catch(e){}
 const listeners = {};
 function persist(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(store)); return true; }catch(e){ toast("Kunne ikke gemme på telefonen"); return false; } }
 const snapOf = path => ({exists: store[path] != null, metadata:{fromCache:false, hasPendingWrites:false}, data: () => store[path]});
@@ -1142,7 +1190,7 @@ document.addEventListener("change", async e => {
     const txt = await e.target.files[0].text(); const j = JSON.parse(txt); const d = j.data || j;
     if (!d["app/program"] || !d["app/log"] || !Array.isArray(d["app/log"].sessions)) throw 0;
     const prev = JSON.parse(JSON.stringify(store));
-    store = d; persist(); ["app/program","app/log"].forEach(p => (listeners[p]||[]).forEach(f => f(snapOf(p))));
+    store = migrateSplit(d); persist(); ["app/program","app/log"].forEach(p => (listeners[p]||[]).forEach(f => f(snapOf(p))));
     toast("Data importeret", false, () => { store = prev; persist(); ["app/program","app/log"].forEach(p => (listeners[p]||[]).forEach(f => f(snapOf(p)))); });
   }catch(err){ toast("Filen kunne ikke læses som en backup"); }
   e.target.value = "";
